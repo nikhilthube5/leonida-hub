@@ -49,6 +49,7 @@ export default function App() {
   const [newScam, setNewScam] = useState("");
 
   const loadData = () => {
+    fetch(`${API_URL}/api/cheats`).catch(() => {});
     fetch(`${API_URL}/api/cheats`).then(r => r.json()).then(setCheats).catch(() => {});
     fetch(`${API_URL}/api/pins`).then(r => r.json()).then(setPins).catch(() => {});
   };
@@ -176,8 +177,7 @@ export default function App() {
 
       <div className="max-w-5xl mx-auto px-4 mt-4">
         <div className="w-full h-16 rounded-xl bg-gradient-to-r from-[#141428] to-[#1c142c] border border-white/10 flex items-center justify-between px-4 text-xs text-gray-400">
-          <span>[AD SLOT: Google AdSense / Adsterra Banner 728x90]</span>
-          <span className="text-pink-400 font-semibold">Sponsor</span>
+          <div id="ad-top-banner" className="w-full flex items-center justify-between"><span>🛡️ Protected by <strong className="text-cyan-400">Hackotimize</strong> Threat Intelligence • GTA 6 Official Launch Tracker</span><a href="https://www.amazon.in/s?k=ps5+console" target="_blank" rel="noreferrer" className="text-pink-400 font-bold underline">Pre-Order Gear →</a></div>
         </div>
       </div>
 
@@ -563,7 +563,7 @@ export default function App() {
 
       <footer className="max-w-5xl mx-auto px-4 mt-8 text-center">
         <div className="w-full h-14 rounded-xl bg-[#121224] border border-white/10 flex items-center justify-center text-xs text-gray-500 mb-4">
-          [BOTTOM STICKY AD SLOT — Adsterra / Monetag / AdSense]
+          ⚡ Need a Gaming Upgrade for GTA 6? Check Best RTX Laptops & PS5 Deals →
         </div>
         <p className="text-[11px] text-gray-500">
           Engineered & Secured by <strong className="text-pink-400">Yash Thube</strong> • <strong className="text-cyan-400">Hackotimize</strong><br/>Disclaimer: Leonida Hub is an unofficial fan-made utility project and is not affiliated with or endorsed by Rockstar Games or Take-Two Interactive.
