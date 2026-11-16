@@ -17,7 +17,7 @@ import {
 ------------------------------------------------------------------- */
 const CONFIG = {
   // Amazon Associates India tag, e.g. "yourname-21"
-  AMAZON_TAG: "",
+  AMAZON_TAG: "leonidahub89-21",
   // Your Telegram channel link, e.g. "https://t.me/yourchannel"
   TELEGRAM_URL: "https://t.me/leonidahub89",
   // Adsterra Native Banner: from the code Adsterra gives you, copy the
