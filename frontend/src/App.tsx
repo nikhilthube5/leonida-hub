@@ -22,8 +22,8 @@ const CONFIG = {
   TELEGRAM_URL: "",
   // Adsterra Native Banner: from the code Adsterra gives you, copy the
   // script src (starts with // or https://) and the container id.
-  ADSTERRA_NATIVE_SRC: "",
-  ADSTERRA_NATIVE_ID: "",
+  ADSTERRA_NATIVE_SRC: "https://bicea.org/21/470966ca46198f128d2cfcf7e081f531",
+  ADSTERRA_NATIVE_ID: "container-470966ca46198f128d2cfcf7e081f531",
   // VPN / antivirus affiliate link (optional)
   SECURITY_AFFILIATE_URL: "",
   // Launch date (local time)
