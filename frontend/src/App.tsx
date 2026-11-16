@@ -19,7 +19,7 @@ const CONFIG = {
   // Amazon Associates India tag, e.g. "yourname-21"
   AMAZON_TAG: "",
   // Your Telegram channel link, e.g. "https://t.me/yourchannel"
-  TELEGRAM_URL: "",
+  TELEGRAM_URL: "https://t.me/leonidahub89",
   // Adsterra Native Banner: from the code Adsterra gives you, copy the
   // script src (starts with // or https://) and the container id.
   ADSTERRA_NATIVE_SRC: "https://bicea.org/21/470966ca46198f128d2cfcf7e081f531",
