@@ -1,572 +1,497 @@
-import React, { useState, useEffect } from "react";
-import { ShieldAlert, ShieldCheck, Gamepad2, MapPin, Cpu, Lock, Copy, Check, ExternalLink, AlertTriangle, Share2, PlusCircle } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import type { FormEvent, ReactNode } from "react";
+import {
+  ShieldAlert,
+  ShieldCheck,
+  AlertTriangle,
+  Download,
+  ShoppingCart,
+  MapPin,
+  Bell,
+  Share2,
+  ExternalLink,
+} from "lucide-react";
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+/* ------------------------------------------------------------------
+   SETTINGS: fill these in to start earning. Empty values are hidden.
+------------------------------------------------------------------- */
+const CONFIG = {
+  // Amazon Associates India tag, e.g. "yourname-21"
+  AMAZON_TAG: "",
+  // Your Telegram channel link, e.g. "https://t.me/yourchannel"
+  TELEGRAM_URL: "",
+  // Adsterra Native Banner: from the code Adsterra gives you, copy the
+  // script src (starts with // or https://) and the container id.
+  ADSTERRA_NATIVE_SRC: "",
+  ADSTERRA_NATIVE_ID: "",
+  // VPN / antivirus affiliate link (optional)
+  SECURITY_AFFILIATE_URL: "",
+  // Launch date (local time)
+  LAUNCH: "2026-11-19T00:00:00",
+};
 
-interface Cheat {
-  id: number;
-  title: string;
-  category: string;
-  ps5: string;
-  xbox: string;
-  locked: number;
+type Tab = "scan" | "preload" | "gear" | "map" | "alerts";
+
+const TABS: { id: Tab; label: string }[] = [
+  { id: "scan", label: "Scam check" },
+  { id: "preload", label: "Preload guide" },
+  { id: "gear", label: "Launch gear" },
+  { id: "map", label: "Leonida map" },
+  { id: "alerts", label: "Scam alerts" },
+];
+
+const DISPLAY = "font-['Anton',Impact,'Arial_Narrow',sans-serif] tracking-wide";
+
+/* ------------------------------- helpers ------------------------------- */
+
+function amazonLink(query: string) {
+  const tag = CONFIG.AMAZON_TAG ? `&tag=${CONFIG.AMAZON_TAG}` : "";
+  return `https://www.amazon.in/s?k=${encodeURIComponent(query)}${tag}`;
 }
 
-interface Pin {
-  id: number;
-  title: string;
-  type: string;
-  x: number;
-  y: number;
-  desc: string;
+const OFFICIAL = ["rockstargames.com", "playstation.com", "xbox.com"];
+const BAD_FILES = /\.(apk|exe|zip|rar|torrent|msi|dmg)(\b|$)/i;
+const BAD_WORDS =
+  /(mobile|android|ios|iphone|free|giveaway|leak|mod|hack|crack|repack|key|beta|generator|download|apk)/i;
+
+type Verdict = { level: "danger" | "warn" | "safe"; title: string; reasons: string[] };
+
+function getHost(input: string) {
+  try {
+    const withProto = /^https?:\/\//i.test(input) ? input : `https://${input}`;
+    return new URL(withProto).hostname.toLowerCase();
+  } catch {
+    return "";
+  }
 }
+
+function analyze(raw: string): Verdict {
+  const input = raw.trim();
+  const host = getHost(input);
+  const official = OFFICIAL.some((d) => host === d || host.endsWith(`.${d}`));
+  const reasons: string[] = [];
+
+  if (BAD_FILES.test(input)) {
+    reasons.push("It points to an installable file (APK, EXE, ZIP or similar). GTA 6 is not released as a download file like this.");
+  }
+  if (!official && BAD_WORDS.test(input)) {
+    reasons.push("It uses words common in scam links (free, mod, leak, mobile, key, download).");
+  }
+  if (!official) {
+    reasons.push("The domain is not Rockstar, PlayStation or Xbox.");
+  }
+  if (/(android|ios|iphone|mobile|\bpc\b)/i.test(input) && !official) {
+    reasons.push("GTA 6 is announced for PS5 and Xbox Series X|S only. No Android, iOS or PC version is announced.");
+  }
+
+  if (official && !BAD_FILES.test(input)) {
+    return {
+      level: "safe",
+      title: "Looks official",
+      reasons: [
+        `The domain (${host}) belongs to an official site.`,
+        "This is a basic check, not a guarantee. Read the full address before you sign in.",
+      ],
+    };
+  }
+  const strong = BAD_FILES.test(input) || (BAD_WORDS.test(input) && !official);
+  return {
+    level: strong ? "danger" : "warn",
+    title: strong ? "Likely fake" : "Not an official site",
+    reasons,
+  };
+}
+
+function useCountdown(target: string) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const diff = new Date(target).getTime() - now;
+  if (diff <= 0) return null;
+  const s = Math.floor(diff / 1000);
+  return {
+    days: Math.floor(s / 86400),
+    hours: Math.floor((s % 86400) / 3600),
+    minutes: Math.floor((s % 3600) / 60),
+    seconds: s % 60,
+  };
+}
+
+/* Adsterra native banner: renders only when configured, one fixed slot. */
+function AdSlot() {
+  const host = useRef<HTMLDivElement>(null);
+  const { ADSTERRA_NATIVE_SRC: src, ADSTERRA_NATIVE_ID: id } = CONFIG;
+  useEffect(() => {
+    const el = host.current;
+    if (!el || !src || !id) return;
+    const box = document.createElement("div");
+    box.id = id;
+    const s = document.createElement("script");
+    s.async = true;
+    s.src = src;
+    s.setAttribute("data-cfasync", "false");
+    el.append(box, s);
+    return () => {
+      el.innerHTML = "";
+    };
+  }, [src, id]);
+  if (!src || !id) return null;
+  return (
+    <div className="mx-auto my-8 max-w-3xl">
+      <p className="mb-1 text-center text-xs text-orange-100/60">Advertisement</p>
+      <div ref={host} className="min-h-[90px]" />
+    </div>
+  );
+}
+
+function Card({ children, className = "" }: { children: ReactNode; className?: string }) {
+  return (
+    <div
+      className={`rounded-2xl border border-pink-400/25 bg-[#1a0627]/70 p-5 shadow-[0_0_40px_-12px_rgba(255,61,139,0.5)] backdrop-blur ${className}`}
+    >
+      {children}
+    </div>
+  );
+}
+
+/* -------------------------------- app -------------------------------- */
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<"scanner" | "cheats" | "map" | "pc" | "admin">("scanner");
-  const [tapCount, setTapCount] = useState(0);
+  const [tab, setTab] = useState<Tab>("scan");
+  const [input, setInput] = useState("");
+  const [verdict, setVerdict] = useState<Verdict | null>(null);
+  const cd = useCountdown(CONFIG.LAUNCH);
 
-  const [scanInput, setScanInput] = useState("");
-  const [scanResult, setScanResult] = useState<any>(null);
-  const [loading, setLoading] = useState(false);
-
-  const [cheats, setCheats] = useState<Cheat[]>([]);
-  const [platform, setPlatform] = useState<"ps5" | "xbox">("ps5");
-  const [searchCheat, setSearchCheat] = useState("");
-  const [unlockedAll, setUnlockedAll] = useState(false);
-  const [copiedId, setCopiedId] = useState<number | null>(null);
-
-  const [pins, setPins] = useState<Pin[]>([]);
-  const [mapFilter, setMapFilter] = useState("all");
-  const [selectedPin, setSelectedPin] = useState<Pin | null>(null);
-
-  const [gpu, setGpu] = useState("rtx3060");
-  const [ram, setRam] = useState("16");
-
-  const [adminKey, setAdminKey] = useState("");
-  const [adminMsg, setAdminMsg] = useState("");
-  const [newCheat, setNewCheat] = useState({ title: "", category: "Vehicles", ps5: "", xbox: "", locked: 0 });
-  const [newPin, setNewPin] = useState({ title: "", type: "car", x: 50, y: 50, desc: "" });
-  const [newScam, setNewScam] = useState("");
-
-  const loadData = () => {
-    fetch(`${API_URL}/api/cheats`).catch(() => {});
-    fetch(`${API_URL}/api/cheats`).then(r => r.json()).then(setCheats).catch(() => {});
-    fetch(`${API_URL}/api/pins`).then(r => r.json()).then(setPins).catch(() => {});
-  };
-
-  useEffect(() => {
-    loadData();
-  }, []);
-
-  const handleSecretAdminTap = () => {
-    const next = tapCount + 1;
-    setTapCount(next);
-    if (next >= 3) {
-      setActiveTab("admin");
-      setTapCount(0);
-    }
-  };
-
-  const handleScan = async (e: React.FormEvent) => {
+  const onScan = (e: FormEvent) => {
     e.preventDefault();
-    if (!scanInput.trim()) return;
-    setLoading(true);
-    try {
-      const res = await fetch(`${API_URL}/api/scan`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: scanInput })
-      });
-      const data = await res.json();
-      setScanResult(data);
-    } catch {
-      setScanResult({
-        status: "DANGER",
-        risk_score: "98% HIGH RISK",
-        message: "FAKE / MALWARE ALERT: GTA 6 is NOT available on Android, iOS, or PC yet!",
-        action: "Do not download any APK/EXE files."
-      });
-    }
-    setLoading(false);
+    if (!input.trim()) return;
+    setVerdict(analyze(input));
   };
 
-  const shareOnWhatsApp = (text: string) => {
-    const url = encodeURIComponent(`${text}\nCheck here: ${window.location.href}`);
-    window.open(`https://wa.me/?text=${url}`, "_blank");
+  const shareWhatsApp = (text: string) => {
+    const msg = encodeURIComponent(`${text}\nCheck links here: ${window.location.href}`);
+    window.open(`https://wa.me/?text=${msg}`, "_blank", "noreferrer");
   };
 
-  const copyCode = (id: number, code: string) => {
-    navigator.clipboard.writeText(code);
-    setCopiedId(id);
-    setTimeout(() => setCopiedId(null), 1500);
+  const tone = {
+    danger: "border-red-400/60 bg-red-950/50 text-red-100",
+    warn: "border-amber-300/60 bg-amber-950/40 text-amber-100",
+    safe: "border-teal-300/60 bg-teal-950/40 text-teal-100",
   };
-
-  const submitCheat = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const res = await fetch(`${API_URL}/api/cheats`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...newCheat, admin_key: adminKey })
-    });
-    if (res.ok) {
-      setAdminMsg("✅ New Cheat Added!");
-      setNewCheat({ title: "", category: "Vehicles", ps5: "", xbox: "", locked: 0 });
-      loadData();
-    } else {
-      setAdminMsg("❌ Wrong Admin Password!");
-    }
-  };
-
-  const submitPin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const res = await fetch(`${API_URL}/api/pins`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...newPin, admin_key: adminKey })
-    });
-    if (res.ok) {
-      setAdminMsg("✅ Map Pin Added!");
-      setNewPin({ title: "", type: "car", x: 50, y: 50, desc: "" });
-      loadData();
-    } else {
-      setAdminMsg("❌ Wrong Admin Password!");
-    }
-  };
-
-  const submitScam = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const res = await fetch(`${API_URL}/api/scam-keywords`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ keyword: newScam, admin_key: adminKey })
-    });
-    if (res.ok) {
-      setAdminMsg("✅ Scam Keyword Added to Detector!");
-      setNewScam("");
-    } else {
-      setAdminMsg("❌ Wrong Admin Password!");
-    }
-  };
-
-  const filteredCheats = cheats.filter(c =>
-    c.title.toLowerCase().includes(searchCheat.toLowerCase()) ||
-    c.category.toLowerCase().includes(searchCheat.toLowerCase())
-  );
-
-  const filteredPins = mapFilter === "all" ? pins : pins.filter(p => p.type === mapFilter);
 
   return (
-    <div className="min-h-screen bg-[#090912] text-white pb-20">
-      <header className="sticky top-0 z-50 bg-[#0d0d1a]/90 backdrop-blur-md border-b border-pink-500/30 px-4 py-3">
-        <div className="max-w-5xl mx-auto flex items-center justify-between">
-          <div>
-            <h1 className="text-xl md:text-2xl font-black tracking-wider bg-gradient-to-r from-pink-500 via-orange-400 to-cyan-400 bg-clip-text text-transparent">
-              LEONIDA HUB
-            </h1>
-            <p className="text-[11px] text-gray-400">Unofficial GTA 6 Companion • Powered by <span className="text-cyan-400 font-semibold">Hackotimize</span></p>
-          </div>
-          <button
-            onClick={handleSecretAdminTap}
-            className="flex items-center gap-1.5 text-xs font-semibold bg-pink-500/20 text-pink-400 border border-pink-500/40 px-3 py-1 rounded-full cursor-pointer select-none"
-          >
-            <span className="w-2 h-2 rounded-full bg-pink-500 animate-ping"></span>
-            LIVE TRACKER
-          </button>
+    <div className="min-h-screen bg-[linear-gradient(180deg,#12021f_0%,#2b0b40_40%,#6a1752_75%,#c2410c_135%)] text-[#fff2e6]">
+      {/* hero */}
+      <header className="relative overflow-hidden border-b border-pink-400/20">
+        <div className="pointer-events-none absolute left-1/2 top-24 h-72 w-72 -translate-x-1/2 rounded-full bg-[radial-gradient(circle,#ffb347_0%,#ff3d8b_55%,transparent_72%)] opacity-70 blur-[2px] sm:h-96 sm:w-96" />
+        <div className="relative mx-auto max-w-5xl px-4 pb-14 pt-8 text-center">
+          <p className="text-sm text-orange-100/80">Unofficial GTA 6 fan companion by Hackotimize</p>
+          <h1 className={`${DISPLAY} mt-3 text-6xl italic leading-none sm:text-8xl bg-gradient-to-b from-[#fff2e6] via-[#ffb347] to-[#ff3d8b] bg-clip-text text-transparent`}>
+            LEONIDA HUB
+          </h1>
+          <p className="mx-auto mt-4 max-w-xl text-base text-orange-50/90">
+            Check GTA 6 links before you tap, get ready for launch day, and skip the fake downloads.
+          </p>
+
+          {cd ? (
+            <div className="mx-auto mt-8 grid max-w-md grid-cols-4 gap-3" aria-live="off">
+              {(
+                [
+                  ["Days", cd.days],
+                  ["Hours", cd.hours],
+                  ["Min", cd.minutes],
+                  ["Sec", cd.seconds],
+                ] as const
+              ).map(([label, n]) => (
+                <div key={label} className="rounded-xl border border-teal-300/40 bg-black/40 py-3">
+                  <div className={`${DISPLAY} text-4xl text-teal-200`}>{String(n).padStart(2, "0")}</div>
+                  <div className="text-xs text-teal-100/80">{label}</div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className={`${DISPLAY} mt-8 text-3xl text-teal-200`}>GTA 6 is out. Stay safe from fake links.</p>
+          )}
+          <p className="mt-3 text-sm text-orange-100/70">Launch: 19 November 2026 on PS5 and Xbox Series X|S</p>
         </div>
       </header>
 
-      <div className="max-w-5xl mx-auto px-4 mt-4">
-        <div className="w-full h-16 rounded-xl bg-gradient-to-r from-[#141428] to-[#1c142c] border border-white/10 flex items-center justify-between px-4 text-xs text-gray-400">
-          <div id="ad-top-banner" className="w-full flex items-center justify-between"><span>🛡️ Protected by <strong className="text-cyan-400">Hackotimize</strong> Threat Intelligence • GTA 6 Official Launch Tracker</span><a href="https://www.amazon.in/s?k=ps5+console" target="_blank" rel="noreferrer" className="text-pink-400 font-bold underline">Pre-Order Gear →</a></div>
+      {/* tabs */}
+      <nav className="sticky top-0 z-20 border-b border-pink-400/20 bg-[#12021f]/90 backdrop-blur" aria-label="Sections">
+        <div className="mx-auto flex max-w-5xl gap-2 overflow-x-auto px-3 py-3">
+          {TABS.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              aria-current={tab === t.id ? "page" : undefined}
+              className={`min-h-[44px] shrink-0 rounded-full px-5 text-sm font-semibold transition ${
+                tab === t.id
+                  ? "bg-gradient-to-r from-[#ff3d8b] to-[#ff8a2b] text-[#1a0610]"
+                  : "text-orange-100/80 hover:bg-white/10"
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
         </div>
-      </div>
+      </nav>
 
-      <div className="max-w-5xl mx-auto px-4 mt-5">
-        <div className="grid grid-cols-4 gap-2 bg-[#121224] p-1.5 rounded-2xl border border-white/10">
-          <button
-            onClick={() => setActiveTab("scanner")}
-            className={`flex flex-col md:flex-row items-center justify-center gap-1.5 py-2.5 px-2 rounded-xl text-xs md:text-sm font-bold transition cursor-pointer ${
-              activeTab === "scanner" ? "bg-gradient-to-r from-pink-600 to-rose-500 text-white shadow-lg shadow-pink-500/30" : "text-gray-400 hover:text-white"
-            }`}
-          >
-            <ShieldAlert className="w-4 h-4" />
-            <span>Scam Check</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab("cheats")}
-            className={`flex flex-col md:flex-row items-center justify-center gap-1.5 py-2.5 px-2 rounded-xl text-xs md:text-sm font-bold transition cursor-pointer ${
-              activeTab === "cheats" ? "bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-lg shadow-cyan-500/30" : "text-gray-400 hover:text-white"
-            }`}
-          >
-            <Gamepad2 className="w-4 h-4" />
-            <span>Cheats</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab("map")}
-            className={`flex flex-col md:flex-row items-center justify-center gap-1.5 py-2.5 px-2 rounded-xl text-xs md:text-sm font-bold transition cursor-pointer ${
-              activeTab === "map" ? "bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-lg shadow-purple-500/30" : "text-gray-400 hover:text-white"
-            }`}
-          >
-            <MapPin className="w-4 h-4" />
-            <span>Vice Map</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab("pc")}
-            className={`flex flex-col md:flex-row items-center justify-center gap-1.5 py-2.5 px-2 rounded-xl text-xs md:text-sm font-bold transition cursor-pointer ${
-              activeTab === "pc" ? "bg-gradient-to-r from-orange-500 to-amber-600 text-white shadow-lg shadow-orange-500/30" : "text-gray-400 hover:text-white"
-            }`}
-          >
-            <Cpu className="w-4 h-4" />
-            <span>PC Check</span>
-          </button>
-        </div>
-      </div>
-
-      <main className="max-w-5xl mx-auto px-4 mt-6">
-        {activeTab === "scanner" && (
-          <div className="space-y-6">
-            <div className="bg-[#121224] border border-pink-500/30 rounded-2xl p-5 md:p-8 shadow-2xl">
-              <div className="flex items-center gap-2 text-pink-400 text-xs font-bold uppercase tracking-wider mb-2">
-                <ShieldAlert className="w-4 h-4" />
-                Hackotimize Cybersecurity Protection Engine
-              </div>
-              <h2 className="text-2xl md:text-3xl font-extrabold mb-2">GTA 6 Fake APK & Scam Link Scanner</h2>
-              <p className="text-gray-400 text-sm mb-6">
-                Paste any suspicious Telegram link, website URL, or <code className="text-pink-400">GTA6_Mobile.apk</code> filename before downloading.
+      <main className="mx-auto max-w-5xl px-4 py-8">
+        {/* ---------- scam check ---------- */}
+        {tab === "scan" && (
+          <section className="space-y-6">
+            <Card>
+              <h2 className={`${DISPLAY} text-3xl`}>Is this GTA 6 link safe?</h2>
+              <p className="mt-2 text-orange-50/80">
+                Paste a link, Telegram message link, or file name. GTA 6 has no Android or iOS app and no
+                download file.
               </p>
-
-              <form onSubmit={handleScan} className="flex flex-col sm:flex-row gap-3">
+              <form onSubmit={onScan} className="mt-4 flex flex-col gap-3 sm:flex-row">
+                <label htmlFor="scan" className="sr-only">
+                  Link or file name
+                </label>
                 <input
-                  type="text"
-                  value={scanInput}
-                  onChange={(e) => setScanInput(e.target.value)}
-                  placeholder="e.g. gta6-android-beta.apk or free-gta6-pc.com"
-                  className="flex-1 bg-[#090912] border border-pink-500/40 rounded-xl px-4 py-3.5 text-sm focus:outline-none focus:border-pink-500"
+                  id="scan"
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  placeholder="e.g. gta6-mobile-download.apk"
+                  className="min-h-[52px] flex-1 rounded-xl border border-pink-400/40 bg-black/50 px-4 text-base text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-teal-300"
                 />
                 <button
                   type="submit"
-                  disabled={loading}
-                  className="bg-gradient-to-r from-pink-600 to-orange-500 hover:opacity-90 font-bold px-6 py-3.5 rounded-xl text-sm shadow-lg shadow-pink-600/30 cursor-pointer"
+                  className="min-h-[52px] rounded-xl bg-gradient-to-r from-[#ff3d8b] to-[#ff8a2b] px-8 font-bold text-[#1a0610]"
                 >
-                  {loading ? "SCANNING..." : "SCAN NOW"}
+                  Check link
                 </button>
               </form>
-
-              <div className="flex flex-wrap gap-2 mt-3 text-xs">
-                <span className="text-gray-500">Try sample:</span>
-                <button onClick={() => setScanInput("gta6-mobile-download.apk")} className="text-pink-400 underline cursor-pointer">gta6-mobile-download.apk</button>
-                <button onClick={() => setScanInput("https://www.rockstargames.com/VI")} className="text-cyan-400 underline cursor-pointer">rockstargames.com/VI</button>
-              </div>
-
-              {scanResult && (
-                <div className={`mt-6 p-5 rounded-2xl border ${
-                  scanResult.status === "DANGER" ? "bg-red-950/40 border-red-500" :
-                  scanResult.status === "SAFE" ? "bg-emerald-950/40 border-emerald-500" :
-                  "bg-amber-950/40 border-amber-500"
-                }`}>
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="font-black text-lg flex items-center gap-2">
-                      {scanResult.status === "SAFE" ? <ShieldCheck className="text-emerald-400" /> : <AlertTriangle className="text-red-400" />}
-                      {scanResult.risk_score}
-                    </span>
-                    <span className="text-xs px-2.5 py-1 rounded-full bg-black/40 font-mono">{scanResult.status}</span>
-                  </div>
-                  <p className="text-sm text-gray-200 mb-4">{scanResult.message}</p>
-                  <div className="flex flex-wrap gap-3">
-                    {scanResult.status !== "SAFE" && (
-                      <a
-                        href="https://www.amazon.in/s?k=antivirus+for+pc+and+mobile"
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-2 bg-red-600 hover:bg-red-500 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition"
-                      >
-                        Protect Your Device Now <ExternalLink className="w-3.5 h-3.5" />
-                      </a>
-                    )}
-                    <button
-                      onClick={() => shareOnWhatsApp(`🚨 Beware! "${scanInput}" was flagged as ${scanResult.risk_score} on Leonida Hub!`)}
-                      className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-4 py-2.5 rounded-xl cursor-pointer"
-                    >
-                      <Share2 className="w-3.5 h-3.5" /> Warn Friends on WhatsApp
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div className="bg-[#121224] border border-white/10 rounded-2xl p-5">
-              <h3 className="text-sm font-bold text-pink-400 uppercase tracking-wider mb-3">🔥 Recently Blocked Fake GTA 6 Scams</h3>
-              <div className="grid sm:grid-cols-3 gap-3 text-xs">
-                <div className="bg-[#090912] p-3 rounded-xl border border-red-500/20">
-                  <span className="text-red-400 font-bold block">GTA6_Beta_v1.2.apk</span>
-                  <span className="text-gray-400">Spyware targeting Android UPI apps</span>
-                </div>
-                <div className="bg-[#090912] p-3 rounded-xl border border-red-500/20">
-                  <span className="text-red-400 font-bold block">gta6-pc-repack.exe</span>
-                  <span className="text-gray-400">Fake torrent containing info-stealer</span>
-                </div>
-                <div className="bg-[#090912] p-3 rounded-xl border border-red-500/20">
-                  <span className="text-red-400 font-bold block">rockstar-free-key.xyz</span>
-                  <span className="text-gray-400">PSN & Steam account phishing site</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {activeTab === "cheats" && (
-          <div className="bg-[#121224] border border-cyan-500/30 rounded-2xl p-5 md:p-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-              <div>
-                <h2 className="text-2xl font-extrabold text-cyan-400">GTA 6 Cheat Codes Vault</h2>
-                <p className="text-xs text-gray-400">Instant button combos for PS5 & Xbox Series X/S</p>
-              </div>
-              <div className="flex bg-[#090912] p-1 rounded-xl border border-white/10 self-start">
-                <button
-                  onClick={() => setPlatform("ps5")}
-                  className={`px-4 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${platform === "ps5" ? "bg-blue-600 text-white" : "text-gray-400"}`}
-                >
-                  PS5
-                </button>
-                <button
-                  onClick={() => setPlatform("xbox")}
-                  className={`px-4 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${platform === "xbox" ? "bg-emerald-600 text-white" : "text-gray-400"}`}
-                >
-                  XBOX
-                </button>
-              </div>
-            </div>
-
-            <input
-              type="text"
-              placeholder="Search cheats (e.g., Car, Health, Police, Jump)..."
-              value={searchCheat}
-              onChange={(e) => setSearchCheat(e.target.value)}
-              className="w-full bg-[#090912] border border-cyan-500/30 rounded-xl px-4 py-3 text-sm mb-5 focus:outline-none focus:border-cyan-400"
-            />
-
-            <div className="space-y-3">
-              {filteredCheats.map((cheat) => {
-                const isLocked = cheat.locked === 1 && !unlockedAll;
-                const codeStr = platform === "ps5" ? cheat.ps5 : cheat.xbox;
-                return (
-                  <div key={cheat.id} className="bg-[#090912] border border-white/10 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold text-base">{cheat.title}</span>
-                        <span className="text-[10px] uppercase px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-300">{cheat.category}</span>
-                      </div>
-                      <div className="mt-2 font-mono text-xs text-amber-300 bg-white/5 px-3 py-1.5 rounded-lg inline-block">
-                        {isLocked ? "•••• •••• •••• (Secret Cheat Locked)" : codeStr}
-                      </div>
-                    </div>
-
-                    {isLocked ? (
-                      <button
-                        onClick={() => setUnlockedAll(true)}
-                        className="flex items-center gap-1.5 bg-gradient-to-r from-amber-500 to-pink-600 text-xs font-bold px-4 py-2.5 rounded-xl cursor-pointer self-start sm:self-center"
-                      >
-                        <Lock className="w-3.5 h-3.5" /> Unlock via Sponsor Ad
-                      </button>
-                    ) : (
-                      <div className="flex gap-2 self-start sm:self-center">
-                        <button
-                          onClick={() => copyCode(cheat.id, codeStr)}
-                          className="flex items-center gap-1.5 bg-white/10 hover:bg-white/20 text-xs font-semibold px-3.5 py-2 rounded-xl cursor-pointer"
-                        >
-                          {copiedId === cheat.id ? <><Check className="w-3.5 h-3.5 text-emerald-400" /> Copied</> : <><Copy className="w-3.5 h-3.5" /> Copy</>}
-                        </button>
-                        <button
-                          onClick={() => shareOnWhatsApp(`🎮 GTA 6 Cheat (${cheat.title} - ${platform.toUpperCase()}): ${codeStr}`)}
-                          className="flex items-center gap-1 bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 text-xs font-semibold px-3 py-2 rounded-xl cursor-pointer"
-                        >
-                          <Share2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {activeTab === "map" && (
-          <div className="bg-[#121224] border border-purple-500/30 rounded-2xl p-5 md:p-6">
-            <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-              <div>
-                <h2 className="text-2xl font-extrabold text-purple-400">Leonida & Vice City Radar</h2>
-                <p className="text-xs text-gray-400">Tap any glowing pin to view secret loot locations</p>
-              </div>
-              <div className="flex gap-1.5 text-xs">
-                {["all", "car", "weapon", "easter"].map((type) => (
+              <p className="mt-3 text-sm text-orange-100/70">
+                Try:{" "}
+                {["gta6-mobile-download.apk", "rockstargames.com/VI"].map((s) => (
                   <button
-                    key={type}
-                    onClick={() => setMapFilter(type)}
-                    className={`px-3 py-1.5 rounded-lg capitalize font-semibold cursor-pointer ${
-                      mapFilter === type ? "bg-purple-600 text-white" : "bg-[#090912] text-gray-400"
-                    }`}
+                    key={s}
+                    type="button"
+                    onClick={() => {
+                      setInput(s);
+                      setVerdict(analyze(s));
+                    }}
+                    className="mr-3 underline decoration-pink-400 underline-offset-4 hover:text-white"
                   >
-                    {type}
+                    {s}
                   </button>
                 ))}
-              </div>
-            </div>
+              </p>
+            </Card>
 
-            <div className="relative w-full h-80 md:h-96 rounded-2xl overflow-hidden border border-purple-500/40 bg-[radial-gradient(circle_at_center,#1e1b4b_0%,#090912_100%)]">
-              <div className="absolute inset-0 bg-[linear-gradient(to_right,#ffffff08_1px,transparent_1px),linear-gradient(to_bottom,#ffffff08_1px,transparent_1px)] bg-[size:32px_32px]"></div>
-              <div className="absolute right-0 top-0 w-1/3 h-full bg-cyan-500/10 border-l border-cyan-400/30 flex items-center justify-center">
-                <span className="text-cyan-500/30 font-black tracking-widest rotate-90 text-xl">VICE BEACH</span>
-              </div>
-
-              {filteredPins.map((pin) => (
-                <button
-                  key={pin.id}
-                  onClick={() => setSelectedPin(pin)}
-                  style={{ left: `${pin.x}%`, top: `${pin.y}%` }}
-                  className="absolute -translate-x-1/2 -translate-y-1/2 group cursor-pointer"
-                >
-                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-pink-500 text-white shadow-lg shadow-pink-500/60 ring-4 ring-pink-500/30 group-hover:scale-125 transition">
-                    <MapPin className="w-3.5 h-3.5" />
-                  </span>
-                </button>
-              ))}
-            </div>
-
-            {selectedPin && (
-              <div className="mt-4 p-4 rounded-xl bg-[#090912] border border-pink-500/40 flex items-center justify-between">
-                <div>
-                  <h4 className="font-bold text-pink-400">{selectedPin.title}</h4>
-                  <p className="text-xs text-gray-300 mt-1">{selectedPin.desc}</p>
+            {verdict && (
+              <div className={`rounded-2xl border p-5 ${tone[verdict.level]}`} role="status">
+                <div className="flex items-center gap-3">
+                  {verdict.level === "safe" ? (
+                    <ShieldCheck aria-hidden="true" />
+                  ) : verdict.level === "danger" ? (
+                    <ShieldAlert aria-hidden="true" />
+                  ) : (
+                    <AlertTriangle aria-hidden="true" />
+                  )}
+                  <h3 className={`${DISPLAY} text-2xl`}>{verdict.title}</h3>
                 </div>
-                <button onClick={() => setSelectedPin(null)} className="text-xs text-gray-500 hover:text-white cursor-pointer">Close</button>
+                <ul className="mt-3 list-disc space-y-1 pl-6 text-sm">
+                  {verdict.reasons.map((r) => (
+                    <li key={r}>{r}</li>
+                  ))}
+                </ul>
+                <p className="mt-3 text-sm opacity-90">
+                  This is an automatic basic check. When in doubt, do not open or install anything.
+                </p>
+                {verdict.level !== "safe" && (
+                  <button
+                    onClick={() => shareWhatsApp("Warning: this GTA 6 link looks fake. Do not download it.")}
+                    className="mt-4 inline-flex min-h-[44px] items-center gap-2 rounded-full border border-current px-5 text-sm font-semibold"
+                  >
+                    <Share2 size={16} aria-hidden="true" /> Warn friends on WhatsApp
+                  </button>
+                )}
               </div>
             )}
-          </div>
+
+            <AdSlot />
+          </section>
         )}
 
-        {activeTab === "pc" && (
-          <div className="bg-[#121224] border border-orange-500/30 rounded-2xl p-5 md:p-6">
-            <h2 className="text-2xl font-extrabold text-orange-400 mb-1">Can My PC Run GTA 6?</h2>
-            <p className="text-xs text-gray-400 mb-6">Check estimated readiness & recommended hardware upgrades</p>
-
-            <div className="grid sm:grid-cols-2 gap-4 mb-6">
-              <div>
-                <label className="block text-xs text-gray-400 mb-1.5">Select Graphics Card (GPU)</label>
-                <select
-                  value={gpu}
-                  onChange={(e) => setGpu(e.target.value)}
-                  className="w-full bg-[#090912] border border-white/15 rounded-xl p-3 text-sm"
-                >
-                  <option value="gtx1650">NVIDIA GTX 1650 / 1060 (Entry)</option>
-                  <option value="rtx3060">NVIDIA RTX 3060 / RX 6600 (Mid)</option>
-                  <option value="rtx4070">NVIDIA RTX 4070 / 4080 (Ultra)</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs text-gray-400 mb-1.5">Select System RAM</label>
-                <select
-                  value={ram}
-                  onChange={(e) => setRam(e.target.value)}
-                  className="w-full bg-[#090912] border border-white/15 rounded-xl p-3 text-sm"
-                >
-                  <option value="8">8 GB RAM</option>
-                  <option value="16">16 GB RAM</option>
-                  <option value="32">32 GB RAM</option>
-                </select>
-              </div>
+        {/* ---------- preload ---------- */}
+        {tab === "preload" && (
+          <section className="space-y-6">
+            <Card>
+              <h2 className={`${DISPLAY} text-3xl`}>Get ready for launch day</h2>
+              <p className="mt-2 text-orange-50/80">
+                Check the exact download size on your console store page. Keep extra free space for the
+                launch patch.
+              </p>
+            </Card>
+            <div className="grid gap-6 md:grid-cols-2">
+              <Card>
+                <h3 className={`${DISPLAY} text-2xl text-teal-200`}>PS5</h3>
+                <ol className="mt-3 list-decimal space-y-2 pl-5 text-orange-50/90">
+                  <li>Buy or pre-order GTA 6 on the PlayStation Store.</li>
+                  <li>Open your Game Library and find the game.</li>
+                  <li>Start the preload when it becomes available. Check your store page for the exact date.</li>
+                  <li>Free up space before launch day and keep the console on a stable connection.</li>
+                </ol>
+              </Card>
+              <Card>
+                <h3 className={`${DISPLAY} text-2xl text-teal-200`}>Xbox Series X|S</h3>
+                <ol className="mt-3 list-decimal space-y-2 pl-5 text-orange-50/90">
+                  <li>Buy or pre-order GTA 6 on the Microsoft Store.</li>
+                  <li>Open My games and apps and find the game.</li>
+                  <li>Start the preload when it becomes available. Check your store page for the exact date.</li>
+                  <li>Free up space before launch day and keep the console on a stable connection.</li>
+                </ol>
+              </Card>
             </div>
-
-            <div className="p-4 rounded-xl bg-[#090912] border border-orange-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div>
-                <span className="text-xs text-gray-400">Estimated Performance:</span>
-                <h3 className="text-lg font-black text-orange-400">
-                  {gpu === "gtx1650" || ram === "8" ? "LOW / UPGRADE RECOMMENDED" : gpu === "rtx3060" ? "MEDIUM - HIGH (1080p 60FPS)" : "ULTRA READY (4K RAY TRACING)"}
-                </h3>
-              </div>
+            <Card>
+              <h3 className="font-semibold">Running low on storage?</h3>
+              <p className="mt-1 text-orange-50/80">An extra SSD or a bigger drive can save you from deleting other games.</p>
               <a
-                href="https://www.amazon.in/s?k=rtx+4060+gaming+laptop"
+                href={amazonLink("PS5 M.2 SSD heatsink")}
                 target="_blank"
-                rel="noreferrer"
-                className="bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold px-4 py-3 rounded-xl text-center"
+                rel="noreferrer sponsored"
+                className="mt-3 inline-flex min-h-[44px] items-center gap-2 rounded-full bg-teal-300 px-5 font-semibold text-[#06201d]"
               >
-                View Best Gaming Laptops & GPUs
+                <Download size={16} aria-hidden="true" /> See storage options on Amazon
               </a>
-            </div>
-          </div>
+            </Card>
+            <AdSlot />
+          </section>
         )}
 
-        {activeTab === "admin" && (
-          <div className="bg-[#121224] border border-emerald-500/40 rounded-2xl p-5 md:p-6 space-y-6">
-            <div className="flex items-center justify-between">
-              <h2 className="text-xl font-black text-emerald-400 flex items-center gap-2">
-                <PlusCircle className="w-5 h-5" /> Owner Admin Panel
-              </h2>
-              <button onClick={() => setActiveTab("scanner")} className="text-xs text-gray-400 underline cursor-pointer">Exit Admin</button>
+        {/* ---------- gear ---------- */}
+        {tab === "gear" && (
+          <section className="space-y-6">
+            <Card>
+              <h2 className={`${DISPLAY} text-3xl`}>Launch week gear</h2>
+              <p className="mt-2 text-sm text-orange-100/70">
+                Affiliate links: we may earn a small commission if you buy, at no extra cost to you.
+              </p>
+            </Card>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {[
+                { name: "PS5 console", q: "PS5 console", note: "Needed to play GTA 6 on PlayStation." },
+                { name: "Xbox Series X", q: "Xbox Series X console", note: "Needed to play GTA 6 on Xbox." },
+                { name: "DualSense controller", q: "PS5 DualSense controller", note: "A spare controller for long sessions." },
+                { name: "Gaming headset", q: "gaming headset PS5", note: "For clear audio and online chat." },
+                { name: "Extra storage", q: "PS5 M.2 SSD heatsink", note: "Room for a big new game." },
+                { name: "Racing wheel", q: "racing wheel PS5", note: "For driving fans." },
+              ].map((g) => (
+                <Card key={g.name}>
+                  <h3 className="font-semibold">{g.name}</h3>
+                  <p className="mt-1 text-sm text-orange-50/80">{g.note}</p>
+                  <a
+                    href={amazonLink(g.q)}
+                    target="_blank"
+                    rel="noreferrer sponsored"
+                    className="mt-4 inline-flex min-h-[44px] items-center gap-2 rounded-full bg-gradient-to-r from-[#ff3d8b] to-[#ff8a2b] px-5 text-sm font-bold text-[#1a0610]"
+                  >
+                    <ShoppingCart size={16} aria-hidden="true" /> View on Amazon
+                  </a>
+                </Card>
+              ))}
+              {CONFIG.SECURITY_AFFILIATE_URL && (
+                <Card>
+                  <h3 className="font-semibold">VPN and antivirus</h3>
+                  <p className="mt-1 text-sm text-orange-50/80">Extra protection on public Wi-Fi and unknown links.</p>
+                  <a
+                    href={CONFIG.SECURITY_AFFILIATE_URL}
+                    target="_blank"
+                    rel="noreferrer sponsored"
+                    className="mt-4 inline-flex min-h-[44px] items-center gap-2 rounded-full bg-teal-300 px-5 text-sm font-bold text-[#06201d]"
+                  >
+                    <ExternalLink size={16} aria-hidden="true" /> Learn more
+                  </a>
+                </Card>
+              )}
             </div>
+            <AdSlot />
+          </section>
+        )}
 
-            <div>
-              <label className="block text-xs text-gray-400 mb-1">Admin Secret Key (Default: yash123)</label>
-              <input
-                type="password"
-                value={adminKey}
-                onChange={(e) => setAdminKey(e.target.value)}
-                placeholder="Enter admin password..."
-                className="w-full sm:w-72 bg-[#090912] border border-emerald-500/40 rounded-xl px-3 py-2 text-sm"
-              />
-              {adminMsg && <p className="text-xs font-bold text-amber-300 mt-2">{adminMsg}</p>}
+        {/* ---------- map ---------- */}
+        {tab === "map" && (
+          <section className="space-y-6">
+            <Card>
+              <h2 className={`${DISPLAY} text-3xl`}>Leonida at a glance</h2>
+              <p className="mt-2 text-orange-50/80">
+                Regions shown on Rockstar&apos;s official GTA 6 site. We only list confirmed names here and will add
+                details after launch.
+              </p>
+            </Card>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {["Vice City", "Leonida Keys", "Grassrivers", "Port Gellhorn", "Ambrosia", "Mount Kalaga National Park"].map(
+                (r) => (
+                  <Card key={r}>
+                    <div className="flex items-center gap-3">
+                      <MapPin className="text-pink-300" aria-hidden="true" />
+                      <h3 className="font-semibold">{r}</h3>
+                    </div>
+                  </Card>
+                ),
+              )}
             </div>
+          </section>
+        )}
 
-            <div className="grid md:grid-cols-2 gap-6">
-              <form onSubmit={submitCheat} className="bg-[#090912] p-4 rounded-xl border border-white/10 space-y-3">
-                <h3 className="font-bold text-sm text-cyan-400">Add New Cheat Code</h3>
-                <input required placeholder="Cheat Title (e.g. Spawn Helicopter)" value={newCheat.title} onChange={e => setNewCheat({...newCheat, title: e.target.value})} className="w-full bg-[#121224] border border-white/10 rounded-lg p-2 text-xs" />
-                <input required placeholder="PS5 Buttons" value={newCheat.ps5} onChange={e => setNewCheat({...newCheat, ps5: e.target.value})} className="w-full bg-[#121224] border border-white/10 rounded-lg p-2 text-xs" />
-                <input required placeholder="Xbox Buttons" value={newCheat.xbox} onChange={e => setNewCheat({...newCheat, xbox: e.target.value})} className="w-full bg-[#121224] border border-white/10 rounded-lg p-2 text-xs" />
-                <select value={newCheat.locked} onChange={e => setNewCheat({...newCheat, locked: Number(e.target.value)})} className="w-full bg-[#121224] border border-white/10 rounded-lg p-2 text-xs">
-                  <option value={0}>Free Cheat</option>
-                  <option value={1}>Locked (Sponsor Ad Required)</option>
-                </select>
-                <button type="submit" className="w-full bg-cyan-600 hover:bg-cyan-500 py-2 rounded-lg text-xs font-bold cursor-pointer">Save Cheat</button>
-              </form>
-
-              <div className="space-y-4">
-                <form onSubmit={submitPin} className="bg-[#090912] p-4 rounded-xl border border-white/10 space-y-2.5">
-                  <h3 className="font-bold text-sm text-purple-400">Add Map Location Pin</h3>
-                  <input required placeholder="Location Name" value={newPin.title} onChange={e => setNewPin({...newPin, title: e.target.value})} className="w-full bg-[#121224] border border-white/10 rounded-lg p-2 text-xs" />
-                  <div className="grid grid-cols-3 gap-2">
-                    <select value={newPin.type} onChange={e => setNewPin({...newPin, type: e.target.value})} className="bg-[#121224] border border-white/10 rounded-lg p-2 text-xs">
-                      <option value="car">Car</option>
-                      <option value="weapon">Weapon</option>
-                      <option value="easter">Easter Egg</option>
-                    </select>
-                    <input type="number" placeholder="X (10-90)" value={newPin.x} onChange={e => setNewPin({...newPin, x: Number(e.target.value)})} className="bg-[#121224] border border-white/10 rounded-lg p-2 text-xs" />
-                    <input type="number" placeholder="Y (10-90)" value={newPin.y} onChange={e => setNewPin({...newPin, y: Number(e.target.value)})} className="bg-[#121224] border border-white/10 rounded-lg p-2 text-xs" />
-                  </div>
-                  <input required placeholder="Short Description" value={newPin.desc} onChange={e => setNewPin({...newPin, desc: e.target.value})} className="w-full bg-[#121224] border border-white/10 rounded-lg p-2 text-xs" />
-                  <button type="submit" className="w-full bg-purple-600 hover:bg-purple-500 py-2 rounded-lg text-xs font-bold cursor-pointer">Add Map Pin</button>
-                </form>
-
-                <form onSubmit={submitScam} className="bg-[#090912] p-4 rounded-xl border border-white/10 space-y-2">
-                  <h3 className="font-bold text-sm text-pink-400">Block New Fake Domain / APK</h3>
-                  <input required placeholder="e.g. gta6free-india.in" value={newScam} onChange={e => setNewScam(e.target.value)} className="w-full bg-[#121224] border border-white/10 rounded-lg p-2 text-xs" />
-                  <button type="submit" className="w-full bg-pink-600 hover:bg-pink-500 py-2 rounded-lg text-xs font-bold cursor-pointer">Add to Scam Database</button>
-                </form>
-              </div>
+        {/* ---------- alerts ---------- */}
+        {tab === "alerts" && (
+          <section className="space-y-6">
+            <Card>
+              <h2 className={`${DISPLAY} text-3xl`}>Common GTA 6 scams</h2>
+              <p className="mt-2 text-orange-50/80">These are typical patterns, not a live blocklist.</p>
+            </Card>
+            <div className="grid gap-4 md:grid-cols-2">
+              {[
+                ["Fake mobile APK", "Promises GTA 6 on Android. There is no mobile version. APKs like this can carry spyware."],
+                ["Free PC download or repack", "Promises GTA 6 on PC. No PC version is announced. These files often hide info-stealers."],
+                ["Free key or giveaway", "Asks you to sign in to PlayStation, Xbox or Steam to claim a key. This steals your account."],
+                ["Fake beta or early access", "Asks for payment or personal details to join a beta. Rockstar does not sell access this way."],
+              ].map(([t, d]) => (
+                <Card key={t}>
+                  <h3 className="font-semibold text-pink-200">{t}</h3>
+                  <p className="mt-1 text-sm text-orange-50/85">{d}</p>
+                </Card>
+              ))}
             </div>
-          </div>
+            <Card>
+              <h3 className={`${DISPLAY} text-2xl`}>Get new scam alerts</h3>
+              <p className="mt-1 text-orange-50/80">Join the channel so you hear about fake links early.</p>
+              {CONFIG.TELEGRAM_URL ? (
+                <a
+                  href={CONFIG.TELEGRAM_URL}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-3 inline-flex min-h-[44px] items-center gap-2 rounded-full bg-teal-300 px-5 font-bold text-[#06201d]"
+                >
+                  <Bell size={16} aria-hidden="true" /> Join on Telegram
+                </a>
+              ) : (
+                <button
+                  onClick={() => shareWhatsApp("Fake GTA 6 downloads are going around. Check any link first.")}
+                  className="mt-3 inline-flex min-h-[44px] items-center gap-2 rounded-full bg-teal-300 px-5 font-bold text-[#06201d]"
+                >
+                  <Share2 size={16} aria-hidden="true" /> Warn friends on WhatsApp
+                </button>
+              )}
+            </Card>
+            <AdSlot />
+          </section>
         )}
       </main>
 
-      <footer className="max-w-5xl mx-auto px-4 mt-8 text-center">
-        <div className="w-full h-14 rounded-xl bg-[#121224] border border-white/10 flex items-center justify-center text-xs text-gray-500 mb-4">
-          ⚡ Need a Gaming Upgrade for GTA 6? Check Best RTX Laptops & PS5 Deals →
-        </div>
-        <p className="text-[11px] text-gray-500">
-          Engineered & Secured by <strong className="text-pink-400">Yash Thube</strong> • <strong className="text-cyan-400">Hackotimize</strong><br/>Disclaimer: Leonida Hub is an unofficial fan-made utility project and is not affiliated with or endorsed by Rockstar Games or Take-Two Interactive.
+      <footer className="border-t border-pink-400/20 px-4 py-8 text-center text-sm text-orange-100/70">
+        <p>Built by Yash Thube. Powered by Hackotimize.</p>
+        <p className="mx-auto mt-2 max-w-2xl">
+          Leonida Hub is an unofficial fan-made project and is not affiliated with or endorsed by Rockstar Games or
+          Take-Two Interactive. Some links are affiliate links, so we may earn a commission. Links you check here are
+          not stored.
         </p>
       </footer>
     </div>
